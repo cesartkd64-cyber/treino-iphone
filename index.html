@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101114">
+  <title>Treino — Meu progresso</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101114;
+      --panel: #1a1c21;
+      --panel-light: #22252c;
+      --text: #f5f6f8;
+      --muted: #a5a9b3;
+      --accent: #b5f36b;
+      --border: #30333b;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .app { max-width: 720px; min-height: 100vh; margin: auto; padding: 22px 16px 40px; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    h1 { margin: 0; font-size: 24px; }
+    .sub, .muted { color: var(--muted); }
+    .sub { margin: 6px 0 20px; font-size: 14px; }
+    .badge { color: var(--accent); font-size: 12px; font-weight: 700; }
+    nav { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 16px; }
+    nav button, .secondary, .delete {
+      background: var(--panel-light); color: var(--text); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 13px;
+    }
+    nav button.active, .primary { background: var(--accent); color: #14200b; border-color: var(--accent); font-weight: 700; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin: 12px 0; }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    h3 { margin: 0; font-size: 16px; }
+    label { display: block; color: var(--muted); font-size: 13px; margin: 12px 0 6px; }
+    input, select, textarea {
+      width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--border);
+      background: #121419; color: var(--text);
+    }
+    textarea { min-height: 76px; resize: vertical; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .primary, .secondary { padding: 11px 14px; border-radius: 11px; }
+    .full { width: 100%; margin-top: 14px; }
+    .exercise { padding: 13px 0; border-top: 1px solid var(--border); }
+    .exercise:first-of-type { border-top: 0; }
+    .small { font-size: 13px; }
+    .delete { color: #ff9d9d; padding: 7px 10px; }
+    .empty { color: var(--muted); text-align: center; padding: 22px 8px; }
+    canvas { width: 100%; height: 190px; display: block; margin-top: 10px; }
+    .notice { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    @media (max-width: 420px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <h1>Meu treino</h1>
+        <p class="sub">Registre. Evolua. Repita.</p>
+      </div>
+      <span class="badge">BETA</span>
+    </header>
+
+    <nav aria-label="Seções">
+      <button class="active" data-tab="Hoje">Hoje</button>
+      <button data-tab="Rotinas">Rotinas</button>
+      <button data-tab="Exercícios">Exercícios</button>
+      <button data-tab="Progresso">Progresso</button>
+    </nav>
+
+    <section id="content"></section>
+    <p class="notice">Seus registros ficam salvos neste navegador e neste aparelho. Para não perder seus dados, evite limpar os dados do Safari.</p>
+  </main>
+
+  <script>
+    const KEY = "meu-treino-v1";
+    const initial = {
+      exercises: [
+        { id: "supino", name: "Supino reto", muscles: "Peitoral, tríceps" },
+        { id: "agachamento", name: "Agachamento", muscles: "Quadríceps, glúteos" },
+        { id: "remada", name: "Remada", muscles: "Costas, bíceps" }
+      ],
+      routines: [{ id: "full", name: "Treino A", exercises: ["supino", "agachamento", "remada"] }],
+      logs: []
+    };
+    let data;
+    try { data = JSON.parse(localStorage.getItem(KEY)) || initial; }
+    catch { data = initial; }
+    let currentTab = "Hoje";
+
+    function save() { localStorage.setItem(KEY, JSON.stringify(data)); }
+    function safe(value) {
+      return String(value ?? "").replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+    function today() {
+      const d = new Date();
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    }
+    function render() {
+      document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === currentTab));
+      const root = document.getElementById("content");
+      if (currentTab === "Hoje") renderToday(root);
+      if (currentTab === "Rotinas") renderRoutines(root);
+      if (currentTab === "Exercícios") renderExercises(root);
+      if (currentTab === "Progresso") renderProgress(root);
+    }
+    function renderToday(root) {
+      const options = data.routines.map(r => `<option value="${safe(r.id)}">${safe(r.name)}</option>`).join("");
+      root.innerHTML = `
+        <div class="card">
+          <h2>Registrar treino</h2>
+          <label for="routine">Rotina</label>
+          <select id="routine">${options || '<option value="">Crie uma rotina primeiro</option>'}</select>
+          <div id="workoutFields"></div>
+          <button class="primary full" id="saveWorkout">Salvar treino</button>
+        </div>
+        <div class="card"><h2>Treinos recentes</h2><div id="recent"></div></div>`;
+      const routineEl = document.getElementById("routine");
+      function fields() {
+        const routine = data.routines.find(r => r.id === routineEl.value);
+        const exercises = (routine?.exercises || []).map(id => data.exercises.find(e => e.id === id)).filter(Boolean);
+        document.getElementById("workoutFields").innerHTML = exercises.length ? exercises.map((e, i) => `
+          <div class="exercise">
+            <h3>${safe(e.name)}</h3><div class="muted small">${safe(e.muscles)}</div>
+            <div class="grid">
+              <div><label for="sets-${i}">Séries</label><input id="sets-${i}" type="number" min="1" value="3"></div>
+              <div><label for="weight-${i}">Carga (kg)</label><input id="weight-${i}" type="number" min="0" step="0.5" placeholder="Ex.: 20"></div>
+            </div>
+            <label for="note-${i}">Anotação</label><input id="note-${i}" placeholder="Como foi?">
+          </div>`).join("") : '<p class="empty">Adicione exercícios a uma rotina para começar.</p>';
+      }
+      routineEl.addEventListener("change", fields);
+      fields();
+      document.getElementById("saveWorkout").addEventListener("click", () => {
+        const routine = data.routines.find(r => r.id === routineEl.value);
+        if (!routine) return alert("Crie uma rotina antes de registrar o treino.");
+        const exercises = routine.exercises.map((id, i) => {
+          const e = data.exercises.find(item => item.id === id);
+          return e ? {
+            id, name: e.name,
+            sets: Number(document.getElementById(`sets-${i}`)?.value || 0),
+            weight: Number(document.getElementById(`weight-${i}`)?.value || 0),
+            note: document.getElementById(`note-${i}`)?.value || ""
+          } : null;
+        }).filter(Boolean);
+        data.logs.unshift({ id: crypto.randomUUID(), date: today(), routine: routine.name, exercises });
+        save(); render();
+      });
+      const recent = document.getElementById("recent");
+      recent.innerHTML = data.logs.slice(0, 5).map(log =>
+        `<div class="exercise"><strong>${safe(log.routine)}</strong><div class="muted small">${safe(log.date)} · ${log.exercises.length} exercícios</div></div>`
+      ).join("") || '<p class="empty">Seus treinos registrados aparecerão aqui.</p>';
+    }
+    function renderExercises(root) {
+      root.innerHTML = `
+        <div class="card">
+          <h2>Novo exercício</h2>
+          <label for="exerciseName">Nome</label><input id="exerciseName" placeholder="Ex.: Desenvolvimento com halteres">
+          <label for="exerciseMuscles">Músculos trabalhados</label><input id="exerciseMuscles" placeholder="Ex.: Ombros, tríceps">
+          <button class="primary full" id="addExercise">Adicionar exercício</button>
+        </div>
+        <div class="card"><h2>Exercícios cadastrados</h2><div id="exerciseList"></div></div>`;
+      document.getElementById("addExercise").onclick = () => {
+        const name = document.getElementById("exerciseName").value.trim();
+        const muscles = document.getElementById("exerciseMuscles").value.trim();
+        if (!name) return alert("Informe o nome do exercício.");
+        data.exercises.push({ id: crypto.randomUUID(), name, muscles });
+        save(); render();
+      };
+      document.getElementById("exerciseList").innerHTML = data.exercises.map(e => `
+        <div class="exercise row"><div><strong>${safe(e.name)}</strong><div class="muted small">${safe(e.muscles)}</div></div>
+        <button class="delete" data-delete-exercise="${safe(e.id)}">Excluir</button></div>`).join("") ||
+        '<p class="empty">Nenhum exercício cadastrado.</p>';
+      root.querySelectorAll("[data-delete-exercise]").forEach(btn => btn.onclick = () => {
+        const id = btn.dataset.deleteExercise;
+        data.exercises = data.exercises.filter(e => e.id !== id);
+        data.routines.forEach(r => r.exercises = r.exercises.filter(x => x !== id));
+        save(); render();
+      });
+    }
+    function renderRoutines(root) {
+      root.innerHTML = `
+        <div class="card">
+          <h2>Nova rotina</h2>
+          <label for="routineName">Nome da rotina</label><input id="routineName" placeholder="Ex.: Treino B">
+          <label>Selecione os exercícios</label>
+          <div id="exerciseChecks"></div>
+          <button class="primary full" id="addRoutine">Salvar rotina</button>
+        </div>
+        <div class="card"><h2>Minhas rotinas</h2><div id="routineList"></div></div>`;
+      document.getElementById("exerciseChecks").innerHTML = data.exercises.map(e =>
+        `<label><input type="checkbox" value="${safe(e.id)}" style="width:auto;margin-right:8px"> ${safe(e.name)}</label>`
+      ).join("") || '<p class="empty">Cadastre exercícios primeiro.</p>';
+      document.getElementById("addRoutine").onclick = () => {
+        const name = document.getElementById("routineName").value.trim();
+        const selected = [...root.querySelectorAll('#exerciseChecks input:checked')].map(x => x.value);
+        if (!name) return alert("Informe o nome da rotina.");
+        data.routines.push({ id: crypto.randomUUID(), name, exercises: selected });
+        save(); render();
+      };
+      document.getElementById("routineList").innerHTML = data.routines.map(r => `
+        <div class="exercise row"><div><strong>${safe(r.name)}</strong>
+        <div class="muted small">${r.exercises.length} exercício(s)</div></div>
+        <button class="delete" data-delete-routine="${safe(r.id)}">Excluir</button></div>`).join("") ||
+        '<p class="empty">Nenhuma rotina criada.</p>';
+      root.querySelectorAll("[data-delete-routine]").forEach(btn => btn.onclick = () => {
+        data.routines = data.routines.filter(r => r.id !== btn.dataset.deleteRoutine);
+        save(); render();
+      });
+    }
+    function renderProgress(root) {
+      const names = [...new Set(data.logs.flatMap(log => log.exercises.map(e => e.name)))];
+      root.innerHTML = `<div class="card"><h2>Progresso de carga</h2>
+        <label for="progressExercise">Exercício</label>
+        <select id="progressExercise">${names.map(n => `<option>${safe(n)}</option>`).join("")}</select>
+        <canvas id="chart" aria-label="Gráfico de evolução da carga"></canvas>
+        <div id="progressSummary" class="muted small"></div></div>
+        <div class="card"><h2>Histórico de registros</h2><div id="history"></div></div>`;
+      const history = document.getElementById("history");
+      history.innerHTML = data.logs.map(log => `
+        <div class="exercise"><strong>${safe(log.routine)}</strong><div class="muted small">${safe(log.date)}</div>
+        ${log.exercises.map(e => `<div class="small">${safe(e.name)}: ${e.sets} séries · ${e.weight} kg${e.note ? ` · ${safe(e.note)}` : ""}</div>`).join("")}
+        </div>`).join("") || '<p class="empty">Registre um treino para acompanhar sua evolução.</p>';
+      const select = document.getElementById("progressExercise");
+      function draw() {
+        const canvas = document.getElementById("chart");
+        const ctx = canvas.getContext("2d");
+        const ratio = window.devicePixelRatio || 1;
+        canvas.width = canvas.clientWidth * ratio; canvas.height = 190 * ratio;
+        ctx.scale(ratio, ratio);
+        const w = canvas.clientWidth, h = 190;
+        ctx.clearRect(0, 0, w, h);
+        const points = data.logs.slice().reverse().flatMap(log => log.exercises
+          .filter(e => e.name === select.value && e.weight > 0)
+          .map(e => ({ date: log.date.slice(5), weight: e.weight })));
+        if (!points.length) {
+          ctx.fillStyle = "#a5a9b3"; ctx.font = "14px sans-serif";
+          ctx.fillText("Registre cargas para ver o gráfico.", 8, 32);
+          document.getElementById("progressSummary").textContent = "";
+          return;
+        }
+        const max = Math.max(...points.map(p => p.weight), 1);
+        const min = Math.min(...points.map(p => p.weight), 0);
+        const spread = Math.max(max - min, 1);
+        const left = 32, right = 10, top = 15, bottom = 28;
+        ctx.strokeStyle = "#30333b"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(left, top); ctx.lineTo(left, h - bottom); ctx.lineTo(w - right, h - bottom); ctx.stroke();
+        ctx.strokeStyle = "#b5f36b"; ctx.lineWidth = 3; ctx.beginPath();
+        points.forEach((p, i) => {
+          const x = points.length === 1 ? (left + w - right) / 2 : left + i * (w - left - right) / (points.length - 1);
+          const y = h - bottom - ((p.weight - min) / spread) * (h - top - bottom);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        points.forEach((p, i) => {
+          const x = points.length === 1 ? (left + w - right) / 2 : left + i * (w - left - right) / (points.length - 1);
+          const y = h - bottom - ((p.weight - min) / spread) * (h - top - bottom);
+          ctx.fillStyle = "#b5f36b"; ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+        });
+        document.getElementById("progressSummary").textContent =
+          `${points.length} registro(s) · início: ${points[0].weight} kg · atual: ${points[points.length - 1].weight} kg`;
+      }
+      select.addEventListener("change", draw);
+      draw();
+    }
+    document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => {
+      currentTab = b.dataset.tab; render();
+    }));
+    render();
+  </script>
+</body>
+</html>
